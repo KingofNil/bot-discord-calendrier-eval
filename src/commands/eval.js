@@ -1,8 +1,9 @@
-const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, InteractionContextType } = require('discord.js');
 const planning = require('../planning');
 const evals = require('../evals');
 const { short } = require('../utils/dates');
 const { STYLES, evalEmbed } = require('../utils/evalStyle');
+const { requirePlanning } = require('../utils/guard');
 
 const filter = (items, query) => items.filter((name) => name.toLowerCase().includes(query.toLowerCase()));
 const truncate = (s, max) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
@@ -10,10 +11,9 @@ const truncate = (s, max) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('eval')
-    .setDescription('Gérer les évaluations (admin)')
-    // Visible uniquement par ceux qui peuvent gérer le serveur (ajustable dans Paramètres > Intégrations)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .setDMPermission(false)
+    .setDescription('Ajouter ou supprimer des évaluations')
+    // Accessible à tous les membres
+    .setContexts(InteractionContextType.Guild)
     .addSubcommand((sub) =>
       sub
         .setName('ajouter')
@@ -49,9 +49,10 @@ module.exports = {
 
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused(true);
+    const { guildId } = interaction;
 
     if (focused.name === 'matiere') {
-      const choices = filter(planning.getMatieres(), focused.value).slice(0, 25);
+      const choices = filter(planning.getMatieres(guildId), focused.value).slice(0, 25);
       return interaction.respond(choices.map((m) => ({ name: truncate(m, 100), value: truncate(m, 100) })));
     }
 
@@ -59,7 +60,7 @@ module.exports = {
       const matiere = interaction.options.getString('matiere');
       const now = new Date();
       const sessions = planning
-        .getSessions()
+        .getSessions(guildId)
         .filter((s) => !s.allDay && s.end > now && (!matiere || s.matiereBase.slice(0, 100) === matiere))
         .filter((s) => short(s.start).includes(focused.value))
         .slice(0, 25);
@@ -74,7 +75,7 @@ module.exports = {
     if (focused.name === 'evaluation') {
       const query = String(focused.value).toLowerCase();
       const choices = evals
-        .upcoming()
+        .upcoming(guildId)
         .filter((e) => `${e.matiere} ${e.titre}`.toLowerCase().includes(query))
         .slice(0, 25);
       return interaction.respond(
@@ -84,10 +85,12 @@ module.exports = {
   },
 
   async execute(interaction) {
+    if (!(await requirePlanning(interaction))) return;
     const sub = interaction.options.getSubcommand();
+    const { guildId } = interaction;
 
     if (sub === 'ajouter') {
-      const session = planning.getSession(interaction.options.getString('seance'));
+      const session = planning.getSession(guildId, interaction.options.getString('seance'));
       if (!session) {
         return interaction.reply({
           content: "Séance introuvable. Choisis une séance dans la liste proposée (après avoir choisi la matière).",
@@ -95,7 +98,7 @@ module.exports = {
         });
       }
 
-      const evaluation = evals.add({
+      const evaluation = evals.add(guildId, {
         session,
         type: interaction.options.getString('type'),
         titre: interaction.options.getString('titre'),
@@ -112,7 +115,7 @@ module.exports = {
     }
 
     if (sub === 'supprimer') {
-      const removed = evals.remove(interaction.options.getInteger('evaluation'));
+      const removed = evals.remove(guildId, interaction.options.getInteger('evaluation'));
       if (!removed) {
         return interaction.reply({ content: 'Évaluation introuvable.', flags: MessageFlags.Ephemeral });
       }

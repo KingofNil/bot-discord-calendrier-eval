@@ -1,10 +1,11 @@
 const ical = require('node-ical');
+const guilds = require('./guilds');
 
 const REFRESH_MS = 30 * 60 * 1000;
 const AUTONOMIE_PREFIX = 'Autonomie - ';
 
-let sessions = [];
-let lastUpdate = null;
+// Un cache par lien iCal : url -> { sessions, lastUpdate }
+const cache = new Map();
 
 // Les champs Hyperplanning peuvent être une chaîne ou { params, val }
 const text = (value) => (value && typeof value === 'object' ? value.val : value || '');
@@ -31,42 +32,68 @@ function toSession(event) {
   };
 }
 
-async function refresh() {
-  const res = await fetch(process.env.ICS_URL);
+// Télécharge et met en cache un planning. Lève une erreur si le lien est invalide.
+async function load(url) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`Hyperplanning a répondu ${res.status}`);
 
   const data = ical.sync.parseICS(await res.text());
-  sessions = Object.values(data)
+  const sessions = Object.values(data)
     .filter((e) => e.type === 'VEVENT')
     .map(toSession)
     .sort((a, b) => a.start - b.start);
-  lastUpdate = new Date();
-  console.log(`Planning mis à jour : ${sessions.length} séances.`);
+  cache.set(url, { sessions, lastUpdate: new Date() });
+  return sessions;
 }
 
 // En cas d'échec on garde le planning précédent
-async function safeRefresh() {
+async function safeLoad(url) {
   try {
-    await refresh();
+    const sessions = await load(url);
+    console.log(`Planning mis à jour : ${sessions.length} séances.`);
   } catch (error) {
-    console.error('Impossible de mettre à jour le planning :', error.message);
+    console.error('Impossible de mettre à jour un planning :', error.message);
   }
 }
 
-function startAutoRefresh() {
-  setInterval(safeRefresh, REFRESH_MS);
-  return safeRefresh();
+async function refreshAll() {
+  const urls = guilds.icsUrls();
+  // On oublie les plannings qui ne sont plus utilisés par aucun serveur
+  for (const url of cache.keys()) if (!urls.includes(url)) cache.delete(url);
+  await Promise.all(urls.map(safeLoad));
 }
 
-const getSessions = () => sessions;
-const getSession = (uid) => sessions.find((s) => s.uid === uid);
-const getLastUpdate = () => lastUpdate;
+function startAutoRefresh() {
+  setInterval(refreshAll, REFRESH_MS);
+  return refreshAll();
+}
+
+const entry = (guildId) => {
+  const config = guilds.get(guildId);
+  return config?.icsUrl ? cache.get(config.icsUrl) : undefined;
+};
+
+const isConfigured = (guildId) => Boolean(guilds.get(guildId)?.icsUrl);
+// Le planning a été chargé au moins une fois (sinon on ne peut pas savoir si une séance a disparu)
+const isLoaded = (guildId) => Boolean(entry(guildId));
+const getSessions = (guildId) => entry(guildId)?.sessions || [];
+const getSession = (guildId, uid) => getSessions(guildId).find((s) => s.uid === uid);
+const getLastUpdate = (guildId) => entry(guildId)?.lastUpdate || null;
 
 // Liste des matières (sans doublons "Autonomie" ni jours fériés)
-function getMatieres() {
-  return [...new Set(sessions.filter((s) => !s.allDay).map((s) => s.matiereBase))].sort((a, b) =>
+function getMatieres(guildId) {
+  return [...new Set(getSessions(guildId).filter((s) => !s.allDay).map((s) => s.matiereBase))].sort((a, b) =>
     a.localeCompare(b, 'fr')
   );
 }
 
-module.exports = { startAutoRefresh, getSessions, getSession, getMatieres, getLastUpdate };
+module.exports = {
+  load,
+  startAutoRefresh,
+  isConfigured,
+  isLoaded,
+  getSessions,
+  getSession,
+  getMatieres,
+  getLastUpdate,
+};

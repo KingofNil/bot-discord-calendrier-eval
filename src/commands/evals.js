@@ -1,8 +1,9 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, InteractionContextType } = require('discord.js');
 const planning = require('../planning');
 const evals = require('../evals');
 const { discordTs, hm, ymd, mondayOf, addDays } = require('../utils/dates');
 const { STYLES, typeStyle, evalEmbed } = require('../utils/evalStyle');
+const { requirePlanning } = require('../utils/guard');
 
 // Discord limite à 10 embeds par message : 1 résumé + 3 cartes détaillées
 const DETAILED = 3;
@@ -63,17 +64,19 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('evals')
     .setDescription('Voir les évaluations à venir')
+    .setContexts(InteractionContextType.Guild)
     .addStringOption((o) => o.setName('matiere').setDescription('Filtrer par matière').setAutocomplete(true)),
 
   async autocomplete(interaction) {
     const query = interaction.options.getFocused().toLowerCase();
-    const matieres = planning.getMatieres().filter((m) => m.toLowerCase().includes(query));
+    const matieres = planning.getMatieres(interaction.guildId).filter((m) => m.toLowerCase().includes(query));
     await interaction.respond(matieres.slice(0, 25).map((m) => ({ name: m.slice(0, 100), value: m.slice(0, 100) })));
   },
 
   async execute(interaction) {
+    if (!(await requirePlanning(interaction))) return;
     const matiere = interaction.options.getString('matiere');
-    const list = evals.upcoming().filter((e) => !matiere || e.matiere.slice(0, 100) === matiere);
+    const list = evals.upcoming(interaction.guildId).filter((e) => !matiere || e.matiere.slice(0, 100) === matiere);
 
     // Les 3 prochaines en cartes détaillées, le reste en liste compacte
     const embeds = [summaryEmbed(list, matiere), ...list.slice(0, DETAILED).map((e) => evalEmbed(e))];

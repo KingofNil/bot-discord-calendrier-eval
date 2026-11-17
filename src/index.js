@@ -3,12 +3,19 @@ const { Client, Collection, Events, GatewayIntentBits, MessageFlags } = require(
 const { loadCommands } = require('./loadCommands');
 
 const planning = require('./planning');
+const guilds = require('./guilds');
 
-const { DISCORD_TOKEN, ICS_URL } = process.env;
+const { DISCORD_TOKEN, ICS_URL, GUILD_ID } = process.env;
 
-if (!DISCORD_TOKEN || !ICS_URL) {
-  console.error('DISCORD_TOKEN et ICS_URL doivent être renseignés dans le fichier .env');
+if (!DISCORD_TOKEN) {
+  console.error('DISCORD_TOKEN doit être renseigné dans le fichier .env');
   process.exit(1);
+}
+
+// Migration de l'ancienne configuration mono-serveur (ICS_URL + GUILD_ID dans le .env)
+if (ICS_URL && GUILD_ID && !guilds.get(GUILD_ID)) {
+  guilds.setIcsUrl(GUILD_ID, ICS_URL, null);
+  console.log(`Planning du .env associé au serveur ${GUILD_ID}.`);
 }
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
@@ -19,7 +26,11 @@ for (const command of loadCommands()) {
 }
 
 client.once(Events.ClientReady, (readyClient) => {
-  console.log(`Connecté en tant que ${readyClient.user.tag}`);
+  console.log(`Connecté en tant que ${readyClient.user.tag} sur ${readyClient.guilds.cache.size} serveur(s)`);
+});
+
+client.on(Events.GuildCreate, (guild) => {
+  console.log(`Ajouté au serveur "${guild.name}" (${guild.id})`);
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

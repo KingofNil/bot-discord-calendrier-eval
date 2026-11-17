@@ -5,23 +5,25 @@ const {
   ButtonBuilder,
   ButtonStyle,
   AttachmentBuilder,
+  InteractionContextType,
 } = require('discord.js');
 const planning = require('../planning');
 const evals = require('../evals');
 const { ymd, hm, addDays, mondayOf, dayLabel, discordTs } = require('../utils/dates');
 const { typeStyle } = require('../utils/evalStyle');
 const { renderWeek } = require('../render/week');
+const { requirePlanning } = require('../utils/guard');
 
-function buildWeek(offset) {
+function buildWeek(guildId, offset) {
   const monday = mondayOf(offset);
   const sunday = addDays(monday, 6);
-  const sessions = planning.getSessions().filter((s) => {
+  const sessions = planning.getSessions(guildId).filter((s) => {
     const day = ymd(s.start);
     return day >= monday && day <= sunday;
   });
 
   const evalsBySession = new Map();
-  for (const e of evals.all()) {
+  for (const e of evals.all(guildId)) {
     if (!evalsBySession.has(e.sessionUid)) evalsBySession.set(e.sessionUid, []);
     evalsBySession.get(e.sessionUid).push(e);
   }
@@ -50,7 +52,7 @@ function buildWeek(offset) {
     const nbCours = sessions.filter((s) => !s.allDay).length;
     embed.setDescription(nbCours ? `✅ Aucune évaluation · ${nbCours} cours` : '😴 Aucun cours cette semaine.');
   }
-  const updated = planning.getLastUpdate();
+  const updated = planning.getLastUpdate(guildId);
   if (updated) embed.setFooter({ text: `Planning Hyperplanning · mis à jour à ${hm(updated)}` });
 
   const row = new ActionRowBuilder().addComponents(
@@ -71,6 +73,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('calendrier')
     .setDescription('Afficher le planning de la semaine avec les évaluations')
+    .setContexts(InteractionContextType.Guild)
     .addIntegerOption((o) =>
       o
         .setName('semaine')
@@ -82,13 +85,14 @@ module.exports = {
   buildWeek,
 
   async execute(interaction) {
-    await interaction.reply(buildWeek(interaction.options.getInteger('semaine') ?? 0));
+    if (!(await requirePlanning(interaction))) return;
+    await interaction.reply(buildWeek(interaction.guildId, interaction.options.getInteger('semaine') ?? 0));
   },
 
   // customId : "calendrier:<offset>"
   async handleButton(interaction) {
     const offset = Number(interaction.customId.split(':')[1]);
     // attachments: [] remplace l'ancienne image au lieu de l'empiler
-    await interaction.update({ ...buildWeek(offset), attachments: [] });
+    await interaction.update({ ...buildWeek(interaction.guildId, offset), attachments: [] });
   },
 };

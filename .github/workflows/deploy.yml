@@ -1,0 +1,38 @@
+name: Déploiement VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Un seul déploiement à la fois ; un nouveau push annule celui en attente
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déployer sur le VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            # Charge nvm si Node a été installé avec (sans effet sinon)
+            export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+
+            cd ~/bot-discord-calendrier-eval
+            git fetch --quiet origin main
+            # .env et data/ sont ignorés par git : ils ne sont pas touchés
+            git reset --hard origin/main
+            npm ci --omit=dev
+            npm run deploy -- --global
+            pm2 startOrReload ecosystem.config.js --update-env
+            pm2 save
+            echo "Déployé : $(git log -1 --pretty='%h %s')"
