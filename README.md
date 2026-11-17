@@ -6,6 +6,8 @@ Bot Discord qui maintient le calendrier des évaluations d'une classe, synchroni
 - Les **élèves** consultent les évaluations à venir et l'emploi du temps de la semaine, rendu en image.
 - Si une séance est déplacée sur Hyperplanning, l'évaluation suit automatiquement.
 - **Multi-serveur** : chaque serveur Discord a son propre emploi du temps et ses propres évaluations.
+- Les évaluations s'affichent en **images** (cartes et liste générées avec canvas).
+- **Rappels automatiques** avec `@here` dans un salon, autant de délais que voulu (ex. 1 semaine et 1 jour avant).
 
 ## Commandes
 
@@ -13,13 +15,17 @@ Bot Discord qui maintient le calendrier des évaluations d'une classe, synchroni
 | --- | --- | --- |
 | `/ping` | Tous | Vérifie que le bot répond (latence). |
 | `/config planning lien` | Admin | Lie le serveur à un emploi du temps Hyperplanning (lien iCal). Le lien est vérifié avant d'être enregistré. |
-| `/config voir` | Tous | Affiche la configuration du serveur (lien masqué, nombre de séances, dernière mise à jour). |
-| `/evals [matiere]` | Tous | Évaluations à venir : résumé, cartes détaillées des 3 prochaines, puis liste groupée par période. |
+| `/config voir` | Tous | Affiche la configuration du serveur (lien masqué, nombre de séances, dernière mise à jour, rappels). |
+| `/config rappels ajouter jours` | Admin | Ajoute un rappel N jours avant chaque évaluation (1 = la veille, 7 = 1 semaine). |
+| `/config rappels supprimer jours` | Admin | Supprime un rappel. |
+| `/config rappels salon salon` | Admin | Salon où les rappels sont envoyés (le bot vérifie ses permissions). |
+| `/config rappels heure heure` | Admin | Heure d'envoi des rappels, heure de Paris (18:00 par défaut). |
+| `/evals [matiere]` | Tous | Image des évaluations à venir, groupées par période, avec compte à rebours. |
 | `/calendrier [semaine]` | Tous | Image de l'emploi du temps de la semaine avec les évaluations mises en évidence. Boutons ◀️ 📍 ▶️ pour naviguer. |
 | `/eval ajouter matiere seance type titre [details]` | Tous | Ajoute une évaluation sur une séance (matière et séance proposées en autocomplétion depuis le planning). |
 | `/eval supprimer evaluation` | Tous | Supprime une évaluation. |
 
-Toutes les commandes sont accessibles à tous les membres, sauf `/config planning`, réservée aux membres ayant la permission **Gérer le serveur** et aux IDs listés dans `BOT_ADMINS` (autorisés sur tous les serveurs).
+Toutes les commandes sont accessibles à tous les membres, sauf `/config planning` et `/config rappels`, réservée aux membres ayant la permission **Gérer le serveur** et aux IDs listés dans `BOT_ADMINS` (autorisés sur tous les serveurs).
 
 Types d'évaluation : 🔴 Partiel · 🟠 Contrôle · 🟡 QCM · 🟣 Oral / Soutenance · 🔵 Rendu de projet · ⚪ Autre
 
@@ -42,7 +48,7 @@ Complète ensuite le fichier `.env` :
 | `CLIENT_ID` | Developer Portal → **General Information** → *Application ID* |
 | `GUILD_ID` | *(optionnel, dev)* Clic droit sur le serveur → *Copier l'identifiant* (mode développeur activé). Si renseigné, `npm run deploy` enregistre les commandes uniquement sur ce serveur (disponibles immédiatement). Laisse-le vide pour un usage multi-serveur. |
 | `ICS_URL` | *(optionnel, ancien mode)* Si `ICS_URL` et `GUILD_ID` sont renseignés, ce planning est associé automatiquement à ce serveur au démarrage. |
-| `BOT_ADMINS` | *(optionnel)* IDs Discord (séparés par des virgules) autorisés à utiliser `/config planning` sur tous les serveurs. |
+| `BOT_ADMINS` | *(optionnel)* IDs Discord (séparés par des virgules) autorisés à utiliser `/config planning` et `/config rappels` sur tous les serveurs. |
 
 Le planning de chaque serveur se configure ensuite directement dans Discord avec `/config planning`, en collant le lien d'export iCal (Hyperplanning → *Emploi du temps* → icône d'export iCal).
 
@@ -84,6 +90,8 @@ Commandes utiles sur le VPS : `pm2 logs bot-calendrier`, `pm2 restart bot-calend
 - La configuration de chaque serveur (lien iCal) est stockée dans `data/guilds.json`.
 - Les plannings sont téléchargés au démarrage puis **toutes les 30 minutes** (une seule fois par lien, même s'il est partagé par plusieurs serveurs). En cas d'échec, le dernier planning chargé est conservé.
 - Les évaluations sont stockées par serveur dans `data/evals.json` (créé automatiquement, ignoré par git), avec une numérotation propre à chaque serveur. Chaque évaluation est liée à l'UID d'une séance Hyperplanning. Si la séance disparaît du planning, l'évaluation reste affichée avec un avertissement ⚠️.
+- **Rappels** : chaque délai configuré s'applique à toutes les évaluations du serveur. Le rappel « N jours avant » part N jours avant le jour de l'évaluation, à l'heure configurée, avec la carte de l'évaluation et un `@here`. Pas de rappel rétroactif : une évaluation ajoutée (ou un délai créé) après l'heure d'un rappel ne le déclenche pas. Si le bot était arrêté, un rappel en retard de plus de 12 h est abandonné. Les rappels envoyés sont mémorisés dans `data/reminders.json`.
+- Le bot a besoin, dans le salon des rappels, des permissions *Envoyer des messages*, *Joindre des fichiers* et *Mentionner @everyone, @here et tous les rôles*.
 - L'ancien format mono-serveur de `data/evals.json` est migré automatiquement vers le serveur `GUILD_ID`.
 - Les dates sont calculées dans le fuseau `Europe/Paris`. Dans les messages, elles utilisent les timestamps Discord, affichés dans le fuseau de chaque utilisateur.
 
@@ -97,9 +105,10 @@ src/
   planning.js           téléchargement et parsing des iCal Hyperplanning (cache par lien)
   guilds.js             configuration par serveur (lien iCal)
   evals.js              stockage des évaluations par serveur (JSON)
+  reminders.js          envoi automatique des rappels (vérification chaque minute)
   store.js              lecture / écriture atomique des fichiers JSON
   commands/             une commande par fichier (ping, config, eval, evals, calendrier)
-  render/week.js        rendu de l'emploi du temps en image (@napi-rs/canvas)
+  render/               images canvas : semaine (week.js), carte d'éval (evalCard.js), liste (evalList.js)
   utils/                dates (fuseau Paris), style des évaluations, vérification de la config
 ```
 

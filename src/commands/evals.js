@@ -1,13 +1,9 @@
-const { SlashCommandBuilder, EmbedBuilder, InteractionContextType } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder, InteractionContextType } = require('discord.js');
 const planning = require('../planning');
 const evals = require('../evals');
-const { discordTs, hm, ymd, mondayOf, addDays } = require('../utils/dates');
-const { STYLES, typeStyle, evalEmbed } = require('../utils/evalStyle');
+const { ymd, mondayOf, addDays } = require('../utils/dates');
 const { requirePlanning } = require('../utils/guard');
-
-// Discord limite à 10 embeds par message : 1 résumé + 3 cartes détaillées
-const DETAILED = 3;
-const MAX_LIST = 25;
+const { renderEvalList } = require('../render/evalList');
 
 function weekGroup(start) {
   const day = ymd(start);
@@ -15,49 +11,6 @@ function weekGroup(start) {
   if (day < mondayOf(2)) return 'Semaine prochaine';
   if (day < addDays(mondayOf(0), 31)) return 'Ce mois-ci';
   return 'Plus tard';
-}
-
-function summaryEmbed(list, matiere) {
-  const embed = new EmbedBuilder()
-    .setColor(list.length ? typeStyle(list[0].type).color : 0x57f287)
-    .setTitle(matiere ? `📚 Évaluations à venir · ${matiere}`.slice(0, 256) : '📚 Évaluations à venir');
-
-  if (list.length === 0) {
-    return embed.setDescription('Aucune évaluation prévue pour le moment. 🎉\nProfites-en !');
-  }
-
-  // Compteurs par type
-  const counts = Object.keys(STYLES)
-    .map((t) => [t, list.filter((e) => e.type === t).length])
-    .filter(([, n]) => n > 0)
-    .map(([t, n]) => `${STYLES[t].emoji} ${n} ${t}`);
-
-  const next = list[0];
-  const lines = [
-    `**${list.length}** évaluation(s) · ${counts.join(' · ')}`,
-    '',
-    `➡️ Prochaine : **${next.titre}** ${discordTs(next.start, 'R')}`,
-  ];
-  embed.setDescription(lines.join('\n'));
-
-  // Les autres évals, regroupées par période
-  const rest = list.slice(DETAILED, MAX_LIST);
-  const groups = new Map();
-  for (const e of rest) {
-    const g = weekGroup(e.start);
-    if (!groups.has(g)) groups.set(g, []);
-    groups.get(g).push(e);
-  }
-  for (const [name, items] of groups) {
-    const value = items
-      .map((e) => `${typeStyle(e.type).emoji} ${discordTs(e.start, 'd')} · \`${hm(e.start)}\` **${e.titre}** — ${e.matiere}`)
-      .join('\n');
-    embed.addFields({ name: `🗓️ ${name}`, value: value.slice(0, 1024) });
-  }
-  if (list.length > MAX_LIST) {
-    embed.setFooter({ text: `+ ${list.length - MAX_LIST} autre(s) — filtre par matière pour les voir` });
-  }
-  return embed;
 }
 
 module.exports = {
@@ -76,10 +29,12 @@ module.exports = {
   async execute(interaction) {
     if (!(await requirePlanning(interaction))) return;
     const matiere = interaction.options.getString('matiere');
-    const list = evals.upcoming(interaction.guildId).filter((e) => !matiere || e.matiere.slice(0, 100) === matiere);
+    const list = evals
+      .upcoming(interaction.guildId)
+      .filter((e) => !matiere || e.matiere.slice(0, 100) === matiere)
+      .map((e) => ({ ...e, group: weekGroup(e.start) }));
 
-    // Les 3 prochaines en cartes détaillées, le reste en liste compacte
-    const embeds = [summaryEmbed(list, matiere), ...list.slice(0, DETAILED).map((e) => evalEmbed(e))];
-    await interaction.reply({ embeds });
+    const image = new AttachmentBuilder(renderEvalList(list, { matiere }), { name: 'evaluations.png' });
+    await interaction.reply({ files: [image] });
   },
 };

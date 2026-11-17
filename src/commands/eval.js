@@ -2,7 +2,8 @@ const { SlashCommandBuilder, MessageFlags, InteractionContextType } = require('d
 const planning = require('../planning');
 const evals = require('../evals');
 const { short } = require('../utils/dates');
-const { STYLES, evalEmbed } = require('../utils/evalStyle');
+const { STYLES } = require('../utils/evalStyle');
+const { cardFile } = require('../utils/evalCardFile');
 const { requirePlanning } = require('../utils/guard');
 
 const filter = (items, query) => items.filter((name) => name.toLowerCase().includes(query.toLowerCase()));
@@ -106,12 +107,11 @@ module.exports = {
         createdBy: interaction.user.id,
       });
 
-      const embed = evalEmbed(evaluation, { title: '✨ Nouvelle évaluation' }).setFooter({
-        text: `Éval #${evaluation.id} · ajoutée par ${interaction.user.username}`,
-        iconURL: interaction.user.displayAvatarURL(),
+      return interaction.reply({
+        content: `✨ Nouvelle évaluation ajoutée par ${interaction.user}`,
+        files: [cardFile(evaluation, { variant: 'nouvelle' })],
+        allowedMentions: { parse: [] },
       });
-
-      return interaction.reply({ embeds: [embed] });
     }
 
     if (sub === 'supprimer') {
@@ -119,9 +119,11 @@ module.exports = {
       if (!removed) {
         return interaction.reply({ content: 'Évaluation introuvable.', flags: MessageFlags.Ephemeral });
       }
-      const embed = evalEmbed(removed, { title: '🗑️ Supprimée' }).setColor(0x4e5058);
-      embed.setDescription(`~~${removed.titre}~~ n'aura plus lieu (ou a été retirée du calendrier).`);
-      return interaction.reply({ embeds: [embed] });
+      return interaction.reply({
+        content: `🗑️ Évaluation supprimée par ${interaction.user}`,
+        files: [cardFile(removed, { variant: 'supprimee' })],
+        allowedMentions: { parse: [] },
+      });
     }
   },
 };

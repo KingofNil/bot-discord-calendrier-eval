@@ -1,20 +1,7 @@
 const { createCanvas } = require('@napi-rs/canvas');
 const { ymd, hm, addDays, dayLabel } = require('../utils/dates');
 const { typeStyle } = require('../utils/evalStyle');
-
-const FONT = '"Segoe UI", Arial, sans-serif';
-const SCALE = 2; // rendu net sur les écrans haute densité
-
-const COLORS = {
-  bg: '#1e1f22',
-  panel: '#2b2d31',
-  grid: '#3f4147',
-  gridLight: '#35373c',
-  text: '#f2f3f5',
-  muted: '#949ba4',
-  accent: '#5865f2',
-  now: '#f23f43',
-};
+const { FONT, SCALE, COLORS, roundRect, wrap } = require('./common');
 
 // Palette des matières (attribuée de façon stable via un hash du nom)
 const PALETTE = ['#5865f2', '#3ba55c', '#faa61a', '#eb459e', '#00a8fc', '#9b59b6', '#1abc9c', '#e67e22', '#57f287', '#ed4245', '#f47fff', '#45ddc0'];
@@ -29,36 +16,6 @@ const minutes = (date) => {
   const [h, m] = hm(date).split(':').map(Number);
   return h * 60 + m;
 };
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, r);
-}
-
-// Découpe un texte en lignes qui tiennent dans maxWidth (ellipse sur la dernière)
-function wrap(ctx, text, maxWidth, maxLines) {
-  const words = text.split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width <= maxWidth) {
-      line = test;
-    } else {
-      if (line) lines.push(line);
-      line = word;
-    }
-  }
-  if (line) lines.push(line);
-
-  if (lines.length > maxLines) {
-    lines.length = maxLines;
-    let last = lines[maxLines - 1];
-    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
-    lines[maxLines - 1] = `${last}…`;
-  }
-  return lines;
-}
 
 /**
  * Dessine la semaine qui commence au lundi `monday` (YYYY-MM-DD).

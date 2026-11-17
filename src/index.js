@@ -4,6 +4,7 @@ const { loadCommands } = require('./loadCommands');
 
 const planning = require('./planning');
 const guilds = require('./guilds');
+const reminders = require('./reminders');
 
 const { DISCORD_TOKEN, ICS_URL, GUILD_ID } = process.env;
 
@@ -27,6 +28,7 @@ for (const command of loadCommands()) {
 
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`Connecté en tant que ${readyClient.user.tag} sur ${readyClient.guilds.cache.size} serveur(s)`);
+  reminders.start(readyClient);
 });
 
 client.on(Events.GuildCreate, (guild) => {
