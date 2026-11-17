@@ -26,6 +26,13 @@ function urgencyColor(start) {
   return GREY;
 }
 
+// Police en gras réduite jusqu'à ce que le texte tienne dans maxWidth
+function shrinkFont(ctx, text, size, maxWidth) {
+  do {
+    ctx.font = `bold ${size}px ${FONT}`;
+  } while (ctx.measureText(text).width > maxWidth && --size > 9);
+}
+
 const W = 900;
 const PAD = 28; // marge intérieure du panneau
 const DATE_W = 150;
@@ -106,13 +113,14 @@ function renderEvalCard(evaluation, { variant, label } = {}) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  ctx.font = `bold 15px ${FONT}`;
+  shrinkFont(ctx, weekdayFmt.format(evaluation.start).toUpperCase(), 15, DATE_W - 20);
   ctx.fillText(weekdayFmt.format(evaluation.start).toUpperCase(), dx + DATE_W / 2, dy + 26);
   ctx.fillStyle = '#ffffff';
   ctx.font = `bold 64px ${FONT}`;
   ctx.fillText(dayFmt.format(evaluation.start), dx + DATE_W / 2, dy + 78);
-  ctx.font = `bold 15px ${FONT}`;
-  ctx.fillText(`${monthFmt.format(evaluation.start).toUpperCase()} ${yearFmt.format(evaluation.start)}`, dx + DATE_W / 2, dy + 126);
+  const monthText = `${monthFmt.format(evaluation.start).toUpperCase()} ${yearFmt.format(evaluation.start)}`;
+  shrinkFont(ctx, monthText, 15, DATE_W - 20);
+  ctx.fillText(monthText, dx + DATE_W / 2, dy + 126);
 
   // --- Contenu ---
   const x = CONTENT_X;
